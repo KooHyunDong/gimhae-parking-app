@@ -9,14 +9,43 @@ st_autorefresh(interval=60000, key="datarefresh")
 
 # 2. 데이터 수집 로직
 def get_parking_data():
+    # 실제 사용하시는 인코딩된 서비스키를 넣으세요.
     DATA_API_KEY = 'a50c28a4672e470d594bae9af0dd980b37474e12b353b76e13fb1becba418ab1'
     url = f"http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT?serviceKey={DATA_API_KEY}&schAirportCode=PUS"
+    
+    # 배포 서버(해외)에서 차단당하지 않도록 브라우저인 척 헤더 추가
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/xml, text/xml, */*'
+    }
+    
     try:
-        response = requests.get(url, timeout=10)
+        # 타임아웃을 15초로 늘리고 헤더를 포함하여 요청
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        # HTTP 상태 코드가 200(성공)인지 확인
+        if response.status_code != 200:
+            st.error(f"API 서버 응답 오류: {response.status_code}")
+            return []
+            
         root = ET.fromstring(response.text)
+        
+        # API 결과 코드 확인 (SERVICE_KEY_IS_NOT_REGISTERED_ERROR 등 방지)
+        result_code = root.findtext('.//resultCode')
+        if result_code != '00':
+            result_msg = root.findtext('.//resultMsg')
+            st.warning(f"API 데이터 오류: {result_msg} ({result_code})")
+            return []
+
         items = root.findall('.//item')
         return items
-    except: return []
+        
+    except requests.exceptions.Timeout:
+        st.error("⚠️ 공공데이터 서버 응답 시간이 초과되었습니다. (서버 지연)")
+        return []
+    except Exception as e:
+        st.error(f"🌐 접속 에러 발생: {e}")
+        return []
 
 # 3. 요금 계산 로직
 def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lot):
