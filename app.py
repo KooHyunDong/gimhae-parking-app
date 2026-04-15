@@ -7,45 +7,19 @@ from streamlit_autorefresh import st_autorefresh
 # 1. 자동 새로고침 (60초 주기)
 st_autorefresh(interval=60000, key="datarefresh")
 
-# 2. 데이터 수집 로직
+# 2. 데이터 수집 로직 (User-Agent 포함)
 def get_parking_data():
-    # 실제 사용하시는 인코딩된 서비스키를 넣으세요.
     DATA_API_KEY = 'a50c28a4672e470d594bae9af0dd980b37474e12b353b76e13fb1becba418ab1'
     url = f"http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT?serviceKey={DATA_API_KEY}&schAirportCode=PUS"
-    
-    # 배포 서버(해외)에서 차단당하지 않도록 브라우저인 척 헤더 추가
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/xml, text/xml, */*'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    
     try:
-        # 타임아웃을 15초로 늘리고 헤더를 포함하여 요청
         response = requests.get(url, headers=headers, timeout=15)
-        
-        # HTTP 상태 코드가 200(성공)인지 확인
-        if response.status_code != 200:
-            st.error(f"API 서버 응답 오류: {response.status_code}")
-            return []
-            
         root = ET.fromstring(response.text)
-        
-        # API 결과 코드 확인 (SERVICE_KEY_IS_NOT_REGISTERED_ERROR 등 방지)
-        result_code = root.findtext('.//resultCode')
-        if result_code != '00':
-            result_msg = root.findtext('.//resultMsg')
-            st.warning(f"API 데이터 오류: {result_msg} ({result_code})")
-            return []
-
         items = root.findall('.//item')
         return items
-        
-    except requests.exceptions.Timeout:
-        st.error("⚠️ 공공데이터 서버 응답 시간이 초과되었습니다. (서버 지연)")
-        return []
-    except Exception as e:
-        st.error(f"🌐 접속 에러 발생: {e}")
-        return []
+    except: return []
 
 # 3. 요금 계산 로직
 def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lot):
@@ -56,14 +30,14 @@ def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lo
         duration_min = int((next_dt - current_dt).total_seconds() / 60)
         is_weekend = current_dt.weekday() >= 4 
         if car_size == "소형":
-            base_fee, unit_fee = 900, 300
+            base_fee = 900
             if "P3" in parking_lot: daily_limit = 10000 if is_weekend else 7000
             else: daily_limit = 15000 if is_weekend else 10000
-            fee = base_fee if duration_min <= 30 else base_fee + ((duration_min - 30) // 10) * unit_fee
+            fee = base_fee if duration_min <= 30 else base_fee + ((duration_min - 30) // 10) * 300
             total_fee += min(fee, daily_limit)
         else:
-            base_fee, unit_fee = 1200, 400
-            fee = base_fee if duration_min <= 30 else base_fee + ((duration_min - 30) // 10) * unit_fee
+            base_fee = 1200
+            fee = base_fee if duration_min <= 30 else base_fee + ((duration_min - 30) // 10) * 400
             total_fee += fee 
         current_dt = next_dt
     if discount_type in ["국가유공자(상이)", "장애인차량", "저공해 1,2종", "경차", "다자녀"]:
@@ -72,25 +46,30 @@ def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lo
         total_fee *= 0.8
     return int(total_fee)
 
-# 4. 스타일 설정
-st.set_page_config(page_title="김해공항 주차안내", layout="centered")
+# 4. 모바일 최적화 스타일 설정
+st.set_page_config(page_title="김해공항 주차관제", layout="centered")
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-    font-family: 'Noto Sans KR', sans-serif;
-    .stApp { background-color: #FFFFFF; }
-    .header-line { border-top: 3px solid #005596; margin-top: 10px; margin-bottom: 20px; }
-    .status-card { border: 1px solid #E5E7EB; padding: 18px 25px; border-radius: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-    .status-name { font-weight: 700; font-size: 1.15rem; color: #111827; }
-    .status-avail { font-weight: 700; font-size: 1.4rem; }
-    .fee-result-red { background-color: #b00b2d; color: white; padding: 45px 20px; border-radius: 8px; text-align: center; }
+    * { font-family: 'Noto Sans KR', sans-serif; }
+    .stApp { background-color: #F9FAFB; }
+    .header-line { border-top: 4px solid #005596; margin-bottom: 20px; }
+    .status-card { background: white; border: 1px solid #E5E7EB; padding: 15px 20px; border-radius: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .status-name { font-weight: 700; font-size: 1rem; color: #374151; }
+    .status-avail { font-weight: 700; font-size: 1.2rem; }
+    .fee-container { background: #b00b2d; color: white; padding: 30px 15px; border-radius: 15px; text-align: center; margin-top: 15px; }
+    .fee-value { font-size: 2.8rem; font-weight: 800; line-height: 1.2; }
+    .fee-label { font-size: 0.9rem; opacity: 0.8; margin-top: 5px; }
+    /* 모바일에서 버튼과 입력창을 더 크게 */
+    div[data-baseweb="select"] { font-size: 1.1rem !important; }
+    button { height: 3rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # ----------------- UI -----------------
-st.title("김해공항 실시간 주차 현황")
+st.title("🛫 김해공항 주차 현황")
 st.markdown("<div class='header-line'></div>", unsafe_allow_html=True)
-st.caption(f"⏱️ 실시간 자동 갱신 중: {datetime.now().strftime('%H:%M:%S')}")
+st.caption(f"🔄 마지막 갱신: {datetime.now().strftime('%H:%M:%S')}")
 
 items = get_parking_data()
 p12_avail = 0
@@ -102,52 +81,54 @@ if items:
         display_name = name + " 주차장" if "P3" in name else name
         avail = max(0, int(item.findtext('parkingFullSpace', 0)) - int(item.findtext('parkingIstay', 0)))
         
-        # 문구 수정: 0대이면 '만차', 아니면 'n대 가능'
         if avail == 0:
-            avail_text = "만차"
-            avail_color = "#FF4D4D"
+            avail_text, avail_color = "만차", "#EF4444"
         else:
-            avail_text = f"{avail:,}대 가능"
-            avail_color = "#005596"
+            avail_text, avail_color = f"{avail:,}대 여유", "#005596"
         
         if "P1" in name or "P2" in name: p12_avail += avail
         if "P3" in name: p3_avail = avail
         
-        st.markdown(f"""
-            <div class="status-card">
-                <span class="status-name">{display_name}</span>
-                <span class="status-avail" style="color: {avail_color};">{avail_text}</span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="status-card"><span class="status-name">{display_name}</span><span class="status-avail" style="color: {avail_color};">{avail_text}</span></div>', unsafe_allow_html=True)
 
-st.write("")
-st.subheader("예상 주차요금 계산")
+st.markdown("---")
+st.subheader("💰 예상 요금 계산")
 
-c1, c2 = st.columns([1.3, 1], gap="medium")
-with c1:
-    st.markdown("**주차 설정**")
-    p_lot = st.selectbox("주차장 선택", ["P1, P2 여객주차장", "P3 여객(화물)주차장"])
-    car_size = st.radio("차량 크기", ["소형", "대형"], horizontal=True)
-    discount = st.selectbox("할인 항목 선택", ["일반", "국가유공자(상이)", "장애인차량", "저공해 3종", "저공해 1,2종", "경차", "다자녀"])
+# 모바일 가독성을 위해 컬럼 구분 없이 순차적 배치
+p_lot = st.selectbox("어디에 주차하시나요?", ["P1, P2 여객주차장", "P3 여객(화물)주차장"])
+car_size = st.radio("차량 크기", ["소형", "대형"], horizontal=True)
+discount = st.selectbox("할인 혜택 선택", ["일반", "국가유공자(상이)", "장애인차량", "저공해 3종", "저공해 1,2종", "경차", "다자녀"])
+
+st.markdown("**📅 입/출차 시간 설정**")
+c1, c2 = st.columns(2)
+in_d = c1.date_input("입차 날짜")
+in_t = c2.time_input("입차 시간", time(11, 0))
+
+c3, c4 = st.columns(2)
+out_d = c3.date_input("출차 날짜", value=datetime.now()+timedelta(days=1))
+out_t = c4.time_input("출차 시간", time(11, 0))
+
+start = datetime.combine(in_d, in_t)
+end = datetime.combine(out_d, out_t)
+
+if start < end:
+    fee = calculate_kims_fee_pro(start, end, car_size, discount, p_lot)
+    dur = end - start
     
-    col_in_d, col_in_t = st.columns(2); in_d = col_in_d.date_input("입차 예정일"); in_t = col_in_t.time_input("입차 시간", time(11, 0), step=600)
-    col_out_d, col_out_t = st.columns(2); out_d = col_out_d.date_input("출차 예정일", value=datetime.now()+timedelta(days=1)); out_t = col_out_t.time_input("출차 시간", time(11, 0), step=600)
-    start = datetime.combine(in_d, in_t); end = datetime.combine(out_d, out_t)
-
-with c2:
-    st.markdown("**예상 요금**")
-    if start < end:
-        fee = calculate_kims_fee_pro(start, end, car_size, discount, p_lot)
-        dur = end - start
-        st.markdown(f"""<div class="fee-result-red"><div style='font-size:2.5rem; font-weight:bold; margin-bottom:15px;'>{fee:,}원</div><div style='font-size:0.85rem; opacity:0.9;'>주차시간: {dur.days}일 {dur.seconds // 3600}시간 {(dur.seconds % 3600) // 60}분</div></div>""", unsafe_allow_html=True)
-        
-        st.write("")
-        # --- 가이드 로직 (담백하게 수정) ---
-        if p12_avail == 0 and p3_avail == 0:
-            st.warning("ℹ️ 공항 내 모든 주차장이 만차입니다. 가급적 사설 주차장이나 대중교통 이용을 권장합니다.")
-        elif p12_avail == 0:
-            st.info(f"💡 여객주차장 만차! 현재 P3 주차장({p3_avail}대 가능) 이용이 가장 빠릅니다.")
-        else:
-            st.success(f"✅ 현재 원활합니다. 터미널 앞 P1 주차장 이용이 편리합니다.")
+    # 요금 박스를 화면 중앙에 크게 배치
+    st.markdown(f"""
+        <div class="fee-container">
+            <div class="fee-value">{fee:,}원</div>
+            <div class="fee-label">주차시간: {dur.days}일 {dur.seconds // 3600}시간 {(dur.seconds % 3600) // 60}분</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.write("")
+    if p12_avail == 0 and p3_avail == 0:
+        st.info("ℹ️ 현재 모든 주차장이 만차입니다. 대중교통이나 사설 주차장 이용을 고려해보세요.")
+    elif p12_avail == 0:
+        st.info(f"💡 여객주차장 만차! 현재 P3 주차장({p3_avail}대 여유) 이용을 추천합니다.")
     else:
-        st.error("시간 확인")
+        st.success(f"✅ 주차 가능! 터미널과 가까운 P1 주차장 이용이 편리합니다.")
+else:
+    st.error("출차 시간이 입차 시간보다 빨라요! 다시 확인해 주세요.")
