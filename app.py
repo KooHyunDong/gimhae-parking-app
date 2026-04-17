@@ -19,8 +19,7 @@ def get_parking_data():
     except KeyError:
         st.error("Streamlit Secrets에 API 키를 등록해주세요.")
         return[]
-    url = "http://openapi.airport.co.kr/servi
-    ce/rest/AirportParking/airportparkingRT"
+    url = "http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT"
     params = {'serviceKey': requests.utils.unquote(DATA_API_KEY), 'schAirportCode': 'PUS'}
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
