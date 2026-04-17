@@ -12,10 +12,14 @@ def get_kst_now():
     # 서버 시간(UTC)에 9시간을 더해 한국 시간으로 변환
     return datetime.utcnow() + timedelta(hours=9)
 
-# 2. 데이터 수집 로직 (기존 유지)
+# 2. 데이터 수집 로직
 def get_parking_data():
-    DATA_API_KEY = 'a50c28a4672e470d594bae9af0dd980b37474e12b353b76e13fb1becba418ab1'
-    url = "http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT"
+        DATA_API_KEY = st.secrets["data_api_key"]
+    except KeyError:
+        st.error("Streamlit Secrets에 API 키를 등록해주세요.")
+        return[]
+    url = "http://openapi.airport.co.kr/servi
+    ce/rest/AirportParking/airportparkingRT"
     params = {'serviceKey': requests.utils.unquote(DATA_API_KEY), 'schAirportCode': 'PUS'}
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
