@@ -14,6 +14,7 @@ def get_kst_now():
 
 # 2. 데이터 수집 로직
 def get_parking_data():
+    try:
         DATA_API_KEY = st.secrets["data_api_key"]
     except KeyError:
         st.error("Streamlit Secrets에 API 키를 등록해주세요.")
