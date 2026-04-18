@@ -18,15 +18,40 @@ def get_parking_data():
         DATA_API_KEY = st.secrets["data_api_key"]
     except KeyError:
         st.error("Streamlit Secrets에 API 키를 등록해주세요.")
-        return[]
+        return []
+
+    # API 서버가 XML을 기본으로 주므로, 요청 시 명확하게 설정합니다.
     url = "http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT"
-    params = {'serviceKey': DATA_API_KEY, 'schAirportCode': 'PUS'}
+    params = {
+        'serviceKey': DATA_API_KEY, 
+        'schAirportCode': 'PUS',
+        '_type': 'json'  # JSON으로 시도해보고 안되면 XML로 파싱하도록 유도
+    }
     headers = {'User-Agent': 'Mozilla/5.0'}
+
     try:
         response = requests.get(url, params=params, headers=headers, timeout=15)
-        root = ET.fromstring(response.text)
-        return root.findall('.//item')
-    except: return []
+        
+        # 만약 JSON 응답이 온다면 처리 (최근 추세)
+        if response.headers.get('Content-Type') == 'application/json' or response.text.strip().startswith('{'):
+            data = response.json()
+            # JSON 구조에 따라 items 추출 (공용 API 표준 구조)
+            return data.get('response', {}).get('body', {}).get('items', {}).get('item', [])
+        
+        # 기존 방식(XML) 유지
+        root = ET.fromstring(response.text.encode('utf-8'))
+        found_items = root.findall('.//item')
+        
+        # 만약 데이터가 없으면 에러 메시지가 응답에 포함되었는지 확인
+        if not found_items and "errMsg" in response.text:
+            st.sidebar.error(f"API 서버 메시지: {response.text}")
+            
+        return found_items
+    except Exception as e:
+        # 하얀 화면 대신 에러 내용을 왼쪽 사이드바에 표시 (트러블슈팅용)
+        st.sidebar.warning(f"연결 상태: {e}")
+        return []
+
 
 # 3. 요금 계산 로직 (기존 유지)
 def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lot):
