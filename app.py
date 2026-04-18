@@ -9,10 +9,9 @@ st_autorefresh(interval=60000, key="datarefresh")
 
 # --- 한국 시간 설정 함수 ---
 def get_kst_now():
-    # 서버 시간(UTC)에 9시간을 더해 한국 시간으로 변환
     return datetime.utcnow() + timedelta(hours=9)
 
-# 2. 데이터 수집 로직
+# 2. 데이터 수집 로직 (JSON/XML 통합 대응)
 def get_parking_data():
     try:
         DATA_API_KEY = st.secrets["data_api_key"]
@@ -20,40 +19,32 @@ def get_parking_data():
         st.error("Streamlit Secrets에 API 키를 등록해주세요.")
         return []
 
-    # API 서버가 XML을 기본으로 주므로, 요청 시 명확하게 설정합니다.
     url = "http://openapi.airport.co.kr/service/rest/AirportParking/airportparkingRT"
+    # 텔레그램과 동일한 설정으로 요청
     params = {
         'serviceKey': DATA_API_KEY, 
         'schAirportCode': 'PUS',
-        '_type': 'json'  # JSON으로 시도해보고 안되면 XML로 파싱하도록 유도
+        '_type': 'json' 
     }
     headers = {'User-Agent': 'Mozilla/5.0'}
 
     try:
         response = requests.get(url, params=params, headers=headers, timeout=15)
         
-        # 만약 JSON 응답이 온다면 처리 (최근 추세)
+        # JSON 응답 처리 (텔레그램 방식)
         if response.headers.get('Content-Type') == 'application/json' or response.text.strip().startswith('{'):
             data = response.json()
-            # JSON 구조에 따라 items 추출 (공용 API 표준 구조)
-            return data.get('response', {}).get('body', {}).get('items', {}).get('item', [])
+            items = data.get('response', {}).get('body', {}).get('items', {}).get('item', [])
+            return [items] if isinstance(items, dict) else items
         
-        # 기존 방식(XML) 유지
+        # XML 응답 처리 (기존 방식)
         root = ET.fromstring(response.text.encode('utf-8'))
-        found_items = root.findall('.//item')
-        
-        # 만약 데이터가 없으면 에러 메시지가 응답에 포함되었는지 확인
-        if not found_items and "errMsg" in response.text:
-            st.sidebar.error(f"API 서버 메시지: {response.text}")
-            
-        return found_items
+        return root.findall('.//item')
     except Exception as e:
-        # 하얀 화면 대신 에러 내용을 왼쪽 사이드바에 표시 (트러블슈팅용)
         st.sidebar.warning(f"연결 상태: {e}")
         return []
 
-
-# 3. 요금 계산 로직 (기존 유지)
+# 3. 요금 계산 로직 (기본 유지)
 def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lot):
     if start_dt >= end_dt: return 0
     total_fee, current_dt = 0, start_dt
@@ -75,7 +66,7 @@ def calculate_kims_fee_pro(start_dt, end_dt, car_size, discount_type, parking_lo
     elif discount_type == "저공해 3종": total_fee *= 0.8
     return int(total_fee)
 
-# 4. 스타일 설정 (모바일 최적화 레이아웃 유지)
+# 4. 스타일 및 레이아웃 설정
 st.set_page_config(page_title="김해공항 주차", layout="centered")
 st.markdown("""
     <style>
@@ -100,19 +91,29 @@ st.markdown("""
 st.markdown('<div class="main-title">🛫 김해공항 주차</div>', unsafe_allow_html=True)
 st.markdown('<div class="header-line"></div>', unsafe_allow_html=True)
 
-# --- 한국 시간으로 갱신 시간 표시 ---
 kst_now = get_kst_now()
 st.caption(f"🔄 마지막 갱신: {kst_now.strftime('%H:%M:%S')} (KST)")
 
 items = get_parking_data()
 if items:
     for item in items:
-        name = item.findtext('parkingAirportCodeName')
+        # JSON/XML 통합 데이터 추출 로직
+        if isinstance(item, dict): # JSON 데이터일 때
+            name = item.get('parkingAirportCodeName', '알 수 없음')
+            full = int(item.get('parkingFullSpace', 0))
+            stay = int(item.get('parkingIstay', 0))
+        else: # XML 데이터일 때
+            name = item.findtext('parkingAirportCodeName', '알 수 없음')
+            full = int(item.findtext('parkingFullSpace', 0))
+            stay = int(item.findtext('parkingIstay', 0))
+            
         display_name = name + " 주차장" if "P3" in name else name
-        avail = max(0, int(item.findtext('parkingFullSpace', 0)) - int(item.findtext('parkingIstay', 0)))
+        avail = max(0, full - stay)
         avail_text = "만차" if avail == 0 else f"{avail:,}대 여유"
         color = "#EF4444" if avail == 0 else "#005596"
         st.markdown(f'<div class="status-card"><span class="status-name">{display_name}</span><span class="status-avail" style="color: {color};">{avail_text}</span></div>', unsafe_allow_html=True)
+else:
+    st.info("실시간 데이터를 가져올 수 없습니다. API 키를 확인해주세요.")
 
 st.write("")
 p_lot = st.selectbox("주차장", ["P1, P2 여객주차장", "P3 여객(화물)주차장"])
@@ -120,7 +121,6 @@ car_size = st.radio("크기", ["소형", "대형"], horizontal=True)
 discount = st.selectbox("할인", ["일반", "국가유공자(상이)", "장애인차량", "저공해 3종", "저공해 1,2종", "경차", "다자녀"])
 
 c1, c2 = st.columns(2)
-# 입차 날짜도 한국 시간 기준으로 기본값 설정
 in_d = c1.date_input("입차", kst_now.date())
 in_t = c2.time_input("시간", time(11, 0))
 
